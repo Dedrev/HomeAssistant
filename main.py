@@ -9,6 +9,10 @@ import base64
 from homeassistant_api import Client
 import wikipedia
 
+import nest_asyncio
+nest_asyncio.apply()
+import asyncio
+
 userData = {}
 
 def userData_change():
@@ -24,7 +28,7 @@ except Exception as e:
 # homeassistant api url
 ASSIST_URL = 'http://homeassistant.local:8123/api'
 # Uses Tool and Vision model in small size and on current Maschine.
-model = 'ministral-3:3B'
+model = 'ministral-3'
 llmHost = "127.0.0.1"
 
 # Needs to be set.
@@ -45,7 +49,7 @@ with open(".token") as f:
 def createPrompt(role, content):
     return {'role': role, 'content': content}
 
-client = ollama.Client(
+client = ollama.AsyncClient(
     llmHost
 )
 user = userData['userName']
@@ -135,6 +139,47 @@ def wikipedia_search(query: str):
 tools = [get_camera_feed, get_local_data, get_home_weather,wikipedia_search]
 
 
+async def chatHandler(stream):
+
+    content = ""
+
+    async for chunk in await stream:
+        # content tokens.
+        if chunk.message.content:
+            content += chunk.message.content
+            print(chunk.message.content, end="", flush=True)
+
+        # tool tokens.
+        if chunk.message.tool_calls:
+            # only recommended for models which only return a single tool call
+            call = chunk.message.tool_calls[0]
+
+            result = None
+
+            # tool call logic
+            if call.function.name == "get_local_data":
+                result = get_local_data(**call.function.arguments)
+                messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
+            elif call.function.name == "get_camera_feed":
+                result = get_camera_feed(**call.function.arguments)
+                messages.append({"role": "tool", "tool_name": call.function.name, "images": [result]})
+            elif call.function.name == "get_home_weather":
+                result = get_home_weather(**call.function.arguments)
+                messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
+            elif call.function.name == "wikipedia_search":
+                result = wikipedia_search(**call.function.arguments)
+                messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
+
+            final_response = client.chat(model=model, messages=messages, tools=tools, stream=True)
+            asyncio.run(chatHandler(final_response))
+            return
+    content+="\n"
+    messages.append(createPrompt("assistant", content))
+    print()
+
+
+
+
 while True:
     userInput = input("User: ")
 
@@ -143,41 +188,13 @@ while True:
     response = client.chat(
         model,
         messages=messages,
-        stream=False,
-        tools=tools
+        stream=True,
+        tools=tools,
         )
-
-    if response.message.tool_calls:
-        # only recommended for models which only return a single tool call
-        call = response.message.tool_calls[0]
-
-        result = None
-
-        # tool call logic
-        if call.function.name == "get_local_data":
-            result = get_local_data(**call.function.arguments)
-            messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
-        elif call.function.name == "get_camera_feed":
-            result = get_camera_feed(**call.function.arguments)
-            messages.append({"role": "tool", "tool_name": call.function.name, "images": [result]})
-        elif call.function.name == "get_home_weather":
-            result = get_home_weather(**call.function.arguments)
-            messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
-        elif call.function.name == "wikipedia_search":
-            result = wikipedia_search(**call.function.arguments)
-            messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
-
-
-        final_response = client.chat(model=model, messages=messages, tools=tools)
-        messages.append(final_response.message)
-
-        print("Luna: ", final_response.message.content)
-    else:
-        message = response['message']
-        messages.append(response.message)
-
-        print("Luna: ", message["content"])
-
     
+
+
+    asyncio.run(chatHandler(response))
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
 
