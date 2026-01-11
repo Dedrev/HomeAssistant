@@ -2,12 +2,24 @@ import ollama
 
 import requests
 
+import json
+
 import base64
 
 from homeassistant_api import Client
 import wikipedia
 
+userData = {}
 
+def userData_change():
+    with open(".userData", mode="w") as f:
+        json.dump(userData, f)
+
+try:
+    with open(".userData", mode="r") as f:
+        userData = json.load(f)
+except Exception as e:
+    userData_change()
 
 # homeassistant api url
 ASSIST_URL = 'http://homeassistant.local:8123/api'
@@ -15,16 +27,17 @@ ASSIST_URL = 'http://homeassistant.local:8123/api'
 model = 'ministral-3:3B'
 llmHost = "127.0.0.1"
 
-# Wikipedia language.
-WIKI_LANG = "en"
-
 # Needs to be set.
-userName = ""
-CAMERA_ENTITY_ID = ""
+if 'userName' not in userData:
+    userData["userName"] = input("Please Type in your Username: ")
 
+if 'CAMERA_ENTITY_ID' not in userData:
+    userData["CAMERA_ENTITY_ID"] = input("Please Type in your your camera id: ")
 
+if 'WIKI_LANG' not in userData:
+    userData["WIKI_LANG"] = input("Please Type the first two letters of your main language for wikipedia search: ")
 
-
+userData_change()
 
 with open(".token") as f:
     TOKEN = f.read() 
@@ -35,9 +48,9 @@ def createPrompt(role, content):
 client = ollama.Client(
     llmHost
 )
-
+user = userData['userName']
 messages = [
-    createPrompt("system", f"You are a helpfull Homeassistant with the Name Luna. The Name of the User is {userName}. Keep yourself short and concise.")
+    createPrompt("system", f"You are a helpfull Homeassistant with the Name Luna. The Name of the User is {user}. Keep yourself short and concise.")
 ]
 
 def get_camera_feed() -> str:
@@ -48,7 +61,8 @@ def get_camera_feed() -> str:
     """
 
     headers = {"Authorization": f"Bearer {TOKEN}"}
-    r = requests.get(f"{ASSIST_URL}/camera_proxy/{CAMERA_ENTITY_ID}", headers=headers)
+    cameraEnt = userData["CAMERA_ENTITY_ID"]
+    r = requests.get(f"{ASSIST_URL}/camera_proxy/{cameraEnt}", headers=headers)
 
     return base64.b64encode(r.content).decode('utf-8')
 
@@ -107,7 +121,7 @@ def wikipedia_search(query: str):
         The product of the two numbers
     """
     # Set language (optional, default is English)!
-    wikipedia.set_lang()
+    wikipedia.set_lang(userData["WIKI_LANG"])
 
     # Search for pages related to a term
     results = wikipedia.search("Python programming")
